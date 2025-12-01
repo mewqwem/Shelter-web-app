@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BUNKER: TERMINAL</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div class="overlay"></div> <div class="app-container">
+        <header>
+            <div class="logo"><a href="index.html">☢️ PROJECT: BUNKER</a></div>
+            
+            <div id="game-status-panel" class="hidden" style="display: flex; gap: 20px; align-items: center;">
+                <div id="phase-display" style="color: cyan; font-weight: bold;">ОЧІКУВАННЯ</div>
+                <div id="timer-display" style="font-size: 24px; color: var(--accent-green); border: 1px solid var(--accent-green); padding: 5px 10px;">00:00</div>
+                <button id="add-time-btn" onclick="addTime()" style="padding: 5px 10px; font-size: 12px; width: auto;">+30s (2)</button>
+            </div>
+        </header>
+
+        <div id="login-screen">
+            <div class="login-box">
+                <h2>ІДЕНТИФІКАЦІЯ</h2>
+                <input type="text" id="username" placeholder="Введіть позивний..." autocomplete="off">
+                <button id="joinBtn">ПІДКЛЮЧИТИСЯ</button>
+            </div>
+        </div>
+
+        <div id="game-screen" style="display: none;">
+            
+            <div id="top-panel">
+                <div class="panel-section">
+                    <h3>👥 Гравці в мережі</h3>
+                    <ul id="players-list"></ul>
+                    <button id="startBtn" style="display: none;">ЗАПУСТИТИ СИМУЛЯЦІЮ</button>
+                    </div>
+                
+                <div id="scenario-display"></div>
+            </div>
+
+            <div class="game-grid">
+                <div class="main-column">
+                    <h3 class="section-title">📋 ДОСЬЄ ГРУПИ</h3>
+                    <div id="players-table"></div>
+                </div>
+
+                <div class="side-column">
+                    <h3 class="section-title">👤 МОЯ КАРТКА</h3>
+                    <div id="my-card-display"></div>
+                    
+                    <div id="voting-area" class="panel-box">
+                        <h3>🗳 ГОЛОСУВАННЯ</h3>
+                        <div class="vote-controls">
+                            <select id="vote-select"></select>
+                            <button id="voteBtn">ВИГНАТИ</button>
+                        </div>
+                        <p id="vote-status"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="chat-container">
+        <div id="chat-header" onclick="toggleChat()">💬 КАНАЛ ЗВ'ЯЗКУ</div>
+        <div id="chat-body">
+            <div id="chat-messages"></div>
+            <div id="chat-input-area">
+                <input type="text" id="chat-input" placeholder="Повідомлення..." autocomplete="off">
+                <button id="send-chat-btn">➤</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="client.js"></script>
+</body>
+</html>
