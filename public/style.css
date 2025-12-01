@@ -353,3 +353,28 @@ button:disabled {
     font-weight: bold;
     display: none; /* Показуємо тільки якщо є голоси */
 }
+/* Додаток до стилів */
+
+#room-info-panel {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(0, 255, 255, 0.1);
+    box-shadow: 0 0 10px cyan;
+}
+
+.menu-btn {
+    margin-bottom: 20px;
+    height: 50px;
+    font-size: 18px;
+    letter-spacing: 2px;
+}
+
+/* Коли вводиш код */
+#room-code-input {
+    text-align: center;
+    font-size: 24px;
+    letter-spacing: 5px;
+    color: var(--accent-yellow);
+    border-color: var(--accent-yellow);
+}
