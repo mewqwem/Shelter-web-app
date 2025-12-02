@@ -24,7 +24,6 @@ function generateRoomCode() {
 io.on('connection', (socket) => {
     socket.join('global'); 
 
-    // --- СТВОРЕННЯ ---
     socket.on('create_room', (nickname) => {
         const roomId = generateRoomCode();
         rooms[roomId] = {
@@ -33,7 +32,7 @@ io.on('connection', (socket) => {
             playerCharacters: {},
             votes: {},
             actionsThisRound: {},
-            revealedTraits: {}, // НОВЕ: Зберігаємо історію відкритих карт { socketId: ['gender', 'age'] }
+            revealedTraits: {}, // Історія відкриттів
             scenario: null,
             phase: "LOBBY",
             round: 0,
@@ -45,87 +44,49 @@ io.on('connection', (socket) => {
         joinRoom(socket, roomId, nickname, true);
     });
 
-    // --- ПРИЄДНАННЯ (ВИПРАВЛЕНИЙ РЕКОННЕКТ) ---
     socket.on('join_room', ({ roomId, nickname }) => {
         roomId = roomId.toUpperCase();
-        if (!rooms[roomId]) {
-            socket.emit('error_message', "❌ Кімнати не існує!");
-            return;
-        }
+        if (!rooms[roomId]) { socket.emit('error_message', "❌ Кімнати не існує!"); return; }
         
         const room = rooms[roomId];
-        
-        // Шукаємо старий ID гравця
         let oldSocketId = null;
         for (let [id, p] of Object.entries(room.players)) {
-            if (p.name === nickname) {
-                oldSocketId = id;
-                break;
-            }
+            if (p.name === nickname) { oldSocketId = id; break; }
         }
 
         if (oldSocketId) {
-            // === ЛОГІКА РЕКОННЕКТУ ===
-            const oldData = room.players[oldSocketId];
-            
-            // 1. Переносимо дані гравця
-            room.players[socket.id] = { ...oldData, online: true };
+            // Reconnect
+            room.players[socket.id] = { ...room.players[oldSocketId], online: true };
             if (oldSocketId !== socket.id) delete room.players[oldSocketId];
             
-            // 2. Переносимо характеристики
             if (room.playerCharacters[oldSocketId]) {
                 room.playerCharacters[socket.id] = room.playerCharacters[oldSocketId];
                 if (oldSocketId !== socket.id) delete room.playerCharacters[oldSocketId];
             }
-
-            // 3. Переносимо статус ходу (ВИПРАВЛЕНО: щоб не міг ходити двічі)
-            if (room.actionsThisRound[oldSocketId]) {
-                room.actionsThisRound[socket.id] = true;
-                if (oldSocketId !== socket.id) delete room.actionsThisRound[oldSocketId];
-            }
-
-            // 4. Переносимо голос (якщо вже голосував)
-            if (room.votes[oldSocketId]) {
-                room.votes[socket.id] = room.votes[oldSocketId];
-                if (oldSocketId !== socket.id) delete room.votes[oldSocketId];
-            }
-
-            // 5. Переносимо історію відкритих карт (ВИПРАВЛЕНО: щоб не було шуму)
+            
+            // Переносимо історію відкритих карт
             if (room.revealedTraits[oldSocketId]) {
                 room.revealedTraits[socket.id] = room.revealedTraits[oldSocketId];
                 if (oldSocketId !== socket.id) delete room.revealedTraits[oldSocketId];
             }
-            
-            // 6. ЗБЕРІГАЄМО МІСЦЕ В ЧЕРЗІ (ВИПРАВЛЕНО)
-            const tIdx = room.turnOrder.indexOf(oldSocketId);
-            if (tIdx !== -1) {
-                room.turnOrder[tIdx] = socket.id; // Просто замінюємо ID на тому ж місці
-            }
 
-            joinRoom(socket, roomId, nickname, oldData.isAdmin, true);
+            const tIdx = room.turnOrder.indexOf(oldSocketId);
+            if (tIdx !== -1) room.turnOrder[tIdx] = socket.id;
+
+            joinRoom(socket, roomId, nickname, room.players[socket.id].isAdmin, true);
         } else {
-            // Новий гравець
-            if (room.phase !== "LOBBY") {
-                socket.emit('error_message', "❌ Гра вже йде!");
-                return;
-            }
-            for (let p of Object.values(room.players)) {
-                if (p.name === nickname) { socket.emit('error_message', "❌ Ім'я зайняте!"); return; }
-            }
+            if (room.phase !== "LOBBY") { socket.emit('error_message', "Гра йде!"); return; }
+            for (let p of Object.values(room.players)) if (p.name === nickname) { socket.emit('error_message', "Ім'я зайняте!"); return; }
             joinRoom(socket, roomId, nickname, false);
         }
     });
 
     function joinRoom(socket, roomId, nickname, isAdmin, isReconnect = false) {
         const room = rooms[roomId];
-        
         if (!isReconnect) {
-            room.players[socket.id] = { 
-                name: nickname, isKicked: false, bonusTimeUsed: 0, isAdmin: isAdmin, online: true 
-            };
-            room.revealedTraits[socket.id] = []; // Ініціалізуємо масив відкритих карт
+            room.players[socket.id] = { name: nickname, isKicked: false, bonusTimeUsed: 0, isAdmin: isAdmin, online: true };
+            room.revealedTraits[socket.id] = [];
         }
-
         socket.leave('global');
         socket.join(roomId);
         socket.data.roomId = roomId;
@@ -134,81 +95,53 @@ io.on('connection', (socket) => {
         socket.emit('room_joined', { roomId: roomId, isAdmin: room.players[socket.id].isAdmin });
         io.to(roomId).emit('update_player_list', room.players);
         
-        if (!isReconnect) io.to(roomId).emit('new_message', { user: "СИСТЕМА", text: `${nickname} зайшов у бункер.` });
-        else io.to(roomId).emit('new_message', { user: "СИСТЕМА", text: `${nickname} повернувся (reconnect).` });
+        if (!isReconnect) io.to(roomId).emit('new_message', { user: "СИСТЕМА", text: `${nickname} зайшов.` });
+        else io.to(roomId).emit('new_message', { user: "СИСТЕМА", text: `${nickname} повернувся.` });
 
-        // === СИНХРОНІЗАЦІЯ ПРИ ПОВЕРНЕННІ ===
         if (room.phase !== "LOBBY") {
             socket.emit('scenario_update', { scenario: room.scenario, round: room.round });
             if (room.playerCharacters[socket.id]) socket.emit('your_character', room.playerCharacters[socket.id]);
             
-            // 7. ВІДНОВЛЕННЯ СТОЛУ (ВИПРАВЛЕНО: ПРИБИРАЄМО ШУМ)
-            // Проходимося по всіх гравцях і надсилаємо новачком (або тому хто повернувся) все, що відкрито
-            for(let pid in room.revealedTraits) {
+            // ВІДНОВЛЮЄМО СТІЛ ДЛЯ РЕКОННЕКТУ
+            for (let pid in room.revealedTraits) {
                 const traits = room.revealedTraits[pid];
-                if (traits && traits.length > 0) {
+                if (traits) {
                     traits.forEach(trait => {
-                        // Відправляємо конкретному сокету, щоб він намалював текст замість шуму
                         socket.emit('player_revealed_trait', { 
                             playerId: pid, 
-                            trait: trait, 
+                            trait, 
                             value: room.playerCharacters[pid][trait] 
                         });
                     });
                 }
             }
 
-            socket.emit('phase_change', { phase: room.phase, title: getPhaseTitle(room), time: room.timeLeft });
-            
-            // Якщо є черга - показати чий хід
+            socket.emit('phase_change', { phase: room.phase, title: room.phase, time: room.timeLeft });
             if (room.turnOrder.length > 0) notifyTurn(roomId);
-            
-            // Якщо зараз голосування - показати смужки
-            if (room.phase === "VOTE") broadcastVotes(roomId);
         }
     }
 
-    function getPhaseTitle(room) {
-        switch(room.phase) {
-            case "INTRO": return "РАУНД 1: ЗНАЙОМСТВО";
-            case "REVEAL": return `РАУНД ${room.round}: ВІДКРИТТЯ`;
-            case "DEBATE": return `РАУНД ${room.round}: ОБГОВОРЕННЯ`;
-            case "VOTE": return `РАУНД ${room.round}: ГОЛОСУВАННЯ`;
-            default: return "ОЧІКУВАННЯ";
-        }
-    }
-
-    // --- СТАРТ ГРИ ---
     socket.on('start_game_request', async () => {
         const roomId = socket.data.roomId;
         if (!roomId || !rooms[roomId]) return;
         const room = rooms[roomId];
-
+        
+        // Для тесту 2 гравці
         if (Object.keys(room.players).length < 2) { 
              socket.emit('error_message', "Мало гравців!"); 
              socket.emit('reset_start_btn'); return;
         }
 
         clearInterval(room.timerInterval);
-        room.round = 1; room.votes = {}; room.actionsThisRound = {}; 
-        room.revealedTraits = {}; // Очищаємо історію відкриттів
-        
+        room.round = 1; room.votes = {}; room.actionsThisRound = {}; room.revealedTraits = {};
         for(let id in room.players) { 
             room.players[id].isKicked = false; 
             room.players[id].bonusTimeUsed = 0;
-            room.revealedTraits[id] = []; // Готуємо масив для кожного
+            room.revealedTraits[id] = [];
         }
 
         try {
-            const prompt = `
-            Згенеруй гру "Бункер" (JSON) для ${Object.keys(room.players).length} гравців.
-            ІНСТРУКЦІЯ:
-            1. ПРОФЕСІЇ: 30% Корисні, 30% Звичайні, 40% Треш.
-            2. ЗДОРОВ'Я: Дисбаланс, тяжкі хвороби.
-            3. ІНВЕНТАР: Корисне і сміття.
-            СЦЕНАРІЙ: Катастрофа, мінімум 2 місця.
-            JSON: { "scenario": { "title": "...", "description": "...", "places": 2, "duration": "..." }, "players": [ { "profession": "...", "health": "...", "gender": "...", "age": "...", "hobby": "...", "inventory": "...", "trait": "..." } ] }`;
-            
+            const prompt = `Згенеруй гру "Бункер" (JSON) для ${Object.keys(room.players).length} гравців. Структура: { "scenario": { "title": "...", "description": "...", "places": 2, "duration": "..." }, "players": [ { "profession": "...", "health": "...", "gender": "...", "age": "...", "hobby": "...", "inventory": "...", "trait": "...", "action": "...", "type": "HEAL/NONE" } ] }`;
             const result = await model.generateContent(prompt);
             let text = result.response.text();
             const cleanJson = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
@@ -223,8 +156,6 @@ io.on('connection', (socket) => {
                 if (socketIds[i]) {
                     room.playerCharacters[socketIds[i]] = char;
                     io.to(socketIds[i]).emit('your_character', char);
-                    
-                    // Авто-відкриття через функцію, щоб записалось в історію
                     setTimeout(() => { 
                         revealTrait(roomId, socketIds[i], 'gender'); 
                         revealTrait(roomId, socketIds[i], 'age'); 
@@ -232,17 +163,115 @@ io.on('connection', (socket) => {
                 }
             });
             startPhase(roomId, "INTRO");
-        } catch (e) { console.error(e); socket.emit('error_message', "AI Error"); socket.emit('reset_start_btn'); }
+        } catch (e) { socket.emit('error_message', "AI Error"); socket.emit('reset_start_btn'); }
     });
 
-    // --- ФУНКЦІЇ ФАЗ ---
+    socket.on('use_ability', ({ trait, targetName }) => {
+        const roomId = socket.data.roomId;
+        const room = rooms[roomId];
+        if (!room || room.phase !== "REVEAL") return;
+        if (socket.id !== room.turnOrder[room.currentTurnIndex]) return;
+        if (room.actionsThisRound[socket.id]) return;
+
+        const myChar = room.playerCharacters[socket.id];
+        if (trait === 'action' && myChar.type === 'HEAL' && targetName) {
+            let targetId = Object.keys(room.players).find(k => room.players[k].name === targetName);
+            if (targetId && targetId !== socket.id) {
+                room.playerCharacters[targetId].health = "Ідеально здоровий (Вилікуваний)";
+                revealTrait(roomId, targetId, 'health'); // Відкрити лікування всім
+                
+                myChar.action = `ВИКОРИСТАНО: Лікування ${targetName}`;
+                myChar.type = "USED";
+                revealTrait(roomId, socket.id, 'action'); // Показати, що юзнув
+            } else { socket.emit('error_message', "Ціль не знайдено!"); return; }
+        } else {
+            revealTrait(roomId, socket.id, trait);
+        }
+        room.actionsThisRound[socket.id] = true;
+        socket.emit('action_success');
+        clearInterval(room.timerInterval);
+        nextTurn(roomId);
+    });
+
+    function revealTrait(roomId, pid, trait) {
+        const room = rooms[roomId];
+        if(room.playerCharacters[pid]) {
+            if (!room.revealedTraits[pid]) room.revealedTraits[pid] = [];
+            if (!room.revealedTraits[pid].includes(trait)) room.revealedTraits[pid].push(trait);
+            
+            io.to(roomId).emit('player_revealed_trait', { 
+                playerId: pid, trait, value: room.playerCharacters[pid][trait] 
+            });
+        }
+    }
+
+    socket.on('submit_vote', (targetId) => {
+        const roomId = socket.data.roomId;
+        const room = rooms[roomId];
+        if (!room || room.phase !== "VOTE") return;
+        if (socket.id !== room.turnOrder[room.currentTurnIndex]) return;
+        room.votes[socket.id] = targetId;
+        broadcastVotes(roomId);
+        clearInterval(room.timerInterval);
+        nextTurn(roomId);
+    });
+
+    socket.on('add_time', () => {
+        const roomId = socket.data.roomId;
+        if(roomId && rooms[roomId]) {
+            const p = rooms[roomId].players[socket.id];
+            if(p && !p.isKicked && p.bonusTimeUsed < 2 && rooms[roomId].phase !== "LOBBY") {
+                p.bonusTimeUsed++;
+                rooms[roomId].timeLeft += 30;
+                io.to(roomId).emit('timer_tick', rooms[roomId].timeLeft);
+                socket.emit('bonus_used_update', p.bonusTimeUsed);
+            }
+        }
+    });
+
+    socket.on('leave_room', () => {
+        const roomId = socket.data.roomId;
+        if (roomId && rooms[roomId]) {
+            rooms[roomId].players[socket.id].isKicked = true;
+            rooms[roomId].players[socket.id].online = false;
+            io.to(roomId).emit('update_player_list', rooms[roomId].players);
+            io.to(roomId).emit('new_message', { user: "СИСТЕМА", text: `🚪 ${rooms[roomId].players[socket.id].name} втік.` });
+            socket.leave(roomId);
+            socket.join('global');
+            socket.data.roomId = null;
+        }
+    });
+
+    socket.on('disconnect', () => {
+        const roomId = socket.data.roomId;
+        if(roomId && rooms[roomId]) {
+            if(rooms[roomId].phase === "LOBBY") delete rooms[roomId].players[socket.id];
+            else rooms[roomId].players[socket.id].online = false;
+            io.to(roomId).emit('update_player_list', rooms[roomId].players);
+        }
+    });
+
+    socket.on('send_message', (text) => {
+        const roomId = socket.data.roomId;
+        if(roomId) io.to(roomId).emit('new_message', { user: socket.data.nickname, text });
+        else io.to('global').emit('new_message', { user: `[GLOBAL] ${socket.data.nickname || 'Anon'}`, text });
+    });
+
+    socket.on('skip_phase', () => {
+        const roomId = socket.data.roomId;
+        if(roomId && rooms[roomId]) {
+            io.to(roomId).emit('new_message', { user: "ADMIN", text: "⏩ SKIP!" });
+            endPhase(roomId);
+        }
+    });
+
     function startPhase(roomId, phase) {
         const room = rooms[roomId];
         room.phase = phase; room.turnOrder = []; clearInterval(room.timerInterval);
         
         if(phase === "INTRO" || phase === "DEBATE") {
             room.timeLeft = TIMES[phase];
-            io.to(roomId).emit('phase_change', { phase, title: getPhaseTitle(room), time: room.timeLeft });
+            io.to(roomId).emit('phase_change', { phase, title: phase, time: room.timeLeft });
             io.to(roomId).emit('turn_update', { activePlayerId: null });
             room.timerInterval = setInterval(() => {
                 room.timeLeft--;
@@ -250,7 +279,7 @@ io.on('connection', (socket) => {
                 if(room.timeLeft <= 0) endPhase(roomId);
             }, 1000);
         } else {
-            io.to(roomId).emit('phase_change', { phase, title: getPhaseTitle(room), time: TIMES.TURN });
+            io.to(roomId).emit('phase_change', { phase, title: phase, time: TIMES.TURN });
             room.turnOrder = Object.keys(room.players).filter(id => !room.players[id].isKicked);
             room.currentTurnIndex = -1;
             nextTurn(roomId);
@@ -296,90 +325,10 @@ io.on('connection', (socket) => {
         else if(room.phase === "VOTE") processVotes(roomId);
     }
 
-    // --- ДІЇ ---
-    socket.on('reveal_trait', (trait) => {
-        const roomId = socket.data.roomId;
-        const room = rooms[roomId];
-        if (!room || room.phase !== "REVEAL") return;
-        if (socket.id !== room.turnOrder[room.currentTurnIndex]) return;
-        if (room.actionsThisRound[socket.id]) return;
-
-        revealTrait(roomId, socket.id, trait);
-        room.actionsThisRound[socket.id] = true;
-        socket.emit('action_success');
-        clearInterval(room.timerInterval);
-        nextTurn(roomId);
-    });
-
-    socket.on('submit_vote', (targetId) => {
-        const roomId = socket.data.roomId;
-        const room = rooms[roomId];
-        if (!room || room.phase !== "VOTE") return;
-        if (socket.id !== room.turnOrder[room.currentTurnIndex]) return;
-        
-        room.votes[socket.id] = targetId;
-        broadcastVotes(roomId);
-        clearInterval(room.timerInterval);
-        nextTurn(roomId);
-    });
-
-    socket.on('add_time', () => {
-        const roomId = socket.data.roomId;
-        if(roomId && rooms[roomId]) {
-            const p = rooms[roomId].players[socket.id];
-            if(p && !p.isKicked && p.bonusTimeUsed < 2 && rooms[roomId].phase !== "LOBBY") {
-                p.bonusTimeUsed++;
-                rooms[roomId].timeLeft += 30;
-                io.to(roomId).emit('timer_tick', rooms[roomId].timeLeft);
-                io.to(roomId).emit('new_message', { user: "СИСТЕМА", text: `⏳ ${p.name} додав +30 секунд!` });
-                socket.emit('bonus_used_update', p.bonusTimeUsed);
-            }
-        }
-    });
-
-    socket.on('leave_room', () => {
-        const roomId = socket.data.roomId;
-        if (roomId && rooms[roomId]) {
-            rooms[roomId].players[socket.id].isKicked = true;
-            rooms[roomId].players[socket.id].online = false;
-            io.to(roomId).emit('update_player_list', rooms[roomId].players);
-            io.to(roomId).emit('new_message', { user: "СИСТЕМА", text: `🚪 ${rooms[roomId].players[socket.id].name} втік (Дезертир).` });
-            socket.leave(roomId);
-            socket.join('global');
-            socket.data.roomId = null;
-        }
-    });
-
-    socket.on('send_message', (text) => {
-        const roomId = socket.data.roomId;
-        const name = socket.data.nickname || "Анонім";
-        if(roomId) io.to(roomId).emit('new_message', { user: name, text });
-        else io.to('global').emit('new_message', { user: `[GLOBAL] ${name}`, text });
-    });
-
-    socket.on('disconnect', () => {
-        const roomId = socket.data.roomId;
-        if(roomId && rooms[roomId]) {
-            if(rooms[roomId].phase === "LOBBY") delete rooms[roomId].players[socket.id];
-            else rooms[roomId].players[socket.id].online = false;
-            io.to(roomId).emit('update_player_list', rooms[roomId].players);
-        }
-    });
-
-    socket.on('skip_phase', () => {
-        const roomId = socket.data.roomId;
-        if(roomId && rooms[roomId]) {
-            io.to(roomId).emit('new_message', { user: "ADMIN", text: "⏩ SKIP!" });
-            endPhase(roomId);
-        }
-    });
-
-    // --- ФІНАЛ ---
     async function processVotes(roomId) {
         const room = rooms[roomId];
         let counts = {};
         Object.values(room.votes).forEach(t => counts[t] = (counts[t] || 0) + 1);
-        
         let loserId = null, max = 0;
         for (let [id, c] of Object.entries(counts)) { if (c > max) { max = c; loserId = id; } }
 
@@ -387,7 +336,6 @@ io.on('connection', (socket) => {
             room.players[loserId].isKicked = true;
             io.to(roomId).emit('voting_result', { message: `🛑 ВИГНАНО: ${room.players[loserId].name}` });
             io.to(roomId).emit('update_player_list', room.players);
-            
             const survivors = Object.values(room.players).filter(p => !p.isKicked).length;
             if (survivors <= room.scenario.places) finishGame(roomId);
             else {
@@ -404,27 +352,9 @@ io.on('connection', (socket) => {
         let survivors = [];
         for (let id in room.players) if (!room.players[id].isKicked) survivors.push({ ...room.playerCharacters[id], name: room.players[id].name });
         try {
-            const result = await model.generateContent(`ФІНАЛ БУНКЕРА. Сценарій: ${JSON.stringify(room.scenario)}. Вижили: ${JSON.stringify(survivors)}. Напиши жорстку історію (6 речень). Вижили чи ні?`);
+            const result = await model.generateContent(`ФІНАЛ. Сценарій: ${JSON.stringify(room.scenario)}. Вижили: ${JSON.stringify(survivors)}. Напиши історію.`);
             io.to(roomId).emit('game_over', result.response.text());
-        } catch(e) { io.to(roomId).emit('game_over', "Зв'язок втрачено... Ви вижили."); }
-    }
-
-    // ЗБЕРІГАЄМО ТЕ, ЩО ВІДКРИЛОСЯ
-    function revealTrait(roomId, pid, trait) {
-        const room = rooms[roomId];
-        if(room.playerCharacters[pid]) {
-            // Додаємо в історію, якщо ще немає
-            if (!room.revealedTraits[pid]) room.revealedTraits[pid] = [];
-            if (!room.revealedTraits[pid].includes(trait)) {
-                room.revealedTraits[pid].push(trait);
-            }
-
-            io.to(roomId).emit('player_revealed_trait', { 
-                playerId: pid, 
-                trait, 
-                value: room.playerCharacters[pid][trait] 
-            });
-        }
+        } catch(e) { io.to(roomId).emit('game_over', "Кінець."); }
     }
     
     function broadcastVotes(roomId) {

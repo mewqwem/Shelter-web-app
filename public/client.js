@@ -1,6 +1,6 @@
 const socket = io();
 
-// ЕЛЕМЕНТИ
+// === ЕЛЕМЕНТИ ===
 const menuScreen = document.getElementById('menu-screen');
 const loginScreen = document.getElementById('login-screen');
 const gameScreen = document.getElementById('game-screen');
@@ -33,9 +33,12 @@ let allPlayersData = {};
 let currentPhase = "LOBBY";
 let activePlayerId = null;
 
+// === ПАМ'ЯТЬ ВІДКРИТИХ КАРТ (NEW) ===
+// Структура: { 'socketId': { 'profession': 'Лікар', 'age': '25' ... } }
+let revealedCache = {}; 
+
 socket.on('connect', () => { 
     myId = socket.id; 
-    // Авто-реконнект
     const savedRoom = localStorage.getItem('bunker_room');
     const savedName = localStorage.getItem('bunker_name');
     if (savedRoom && savedName) {
@@ -43,7 +46,7 @@ socket.on('connect', () => {
     }
 });
 
-// МЕНЮ
+// --- МЕНЮ ---
 createRoomBtn.onclick = () => { currentMode = 'create'; menuScreen.style.display = 'none'; loginScreen.style.display = 'block'; roomInputContainer.style.display = 'none'; loginTitle.textContent = "СТВОРЕННЯ ГРИ"; actionBtn.textContent = "СТВОРИТИ"; };
 joinRoomMenuBtn.onclick = () => { currentMode = 'join'; menuScreen.style.display = 'none'; loginScreen.style.display = 'block'; roomInputContainer.style.display = 'block'; loginTitle.textContent = "ПРИЄДНАННЯ"; actionBtn.textContent = "УВІЙТИ"; };
 backToMenuBtn.onclick = () => { loginScreen.style.display = 'none'; menuScreen.style.display = 'block'; };
@@ -51,7 +54,7 @@ backToMenuBtn.onclick = () => { loginScreen.style.display = 'none'; menuScreen.s
 actionBtn.onclick = () => {
     const name = usernameInput.value.trim();
     if (!name) { alert("Введіть ім'я!"); return; }
-    localStorage.setItem('bunker_name', name); // Зберегти ім'я
+    localStorage.setItem('bunker_name', name);
 
     if (currentMode === 'create') socket.emit('create_room', name);
     else {
@@ -61,16 +64,15 @@ actionBtn.onclick = () => {
     }
 };
 
-// ВХІД
+// --- ВХІД ---
 socket.on('room_joined', (data) => {
-    localStorage.setItem('bunker_room', data.roomId); // Зберегти кімнату
+    localStorage.setItem('bunker_room', data.roomId);
     loginScreen.style.display = 'none';
     menuScreen.style.display = 'none';
     gameScreen.style.display = 'block';
     
     roomInfoPanel.classList.remove('hidden');
     roomCodeDisplay.textContent = data.roomId;
-    
     chatHeader.textContent = `💬 КАНАЛ КІМНАТИ [${data.roomId}]`;
     chatMessages.innerHTML = ''; 
 
@@ -101,14 +103,21 @@ leaveRoomBtn.onclick = () => {
     }
 };
 
-// ГРА
+// --- ГРА ---
 socket.on('update_player_list', (playersObj) => {
     allPlayersData = playersObj;
     renderTable();
     updateInterfaceForPhase();
 });
 
-startBtn.onclick = () => { startBtn.disabled = true; startBtn.textContent = "ЗАВАНТАЖЕННЯ..."; socket.emit('start_game_request'); };
+startBtn.onclick = () => { 
+    startBtn.disabled = true; 
+    startBtn.textContent = "ЗАВАНТАЖЕННЯ..."; 
+    // Очищаємо кеш при новій грі
+    revealedCache = {};
+    socket.emit('start_game_request'); 
+};
+
 socket.on('reset_start_btn', () => { startBtn.disabled = false; startBtn.textContent = "ЗАПУСТИТИ СИМУЛЯЦІЮ"; });
 
 socket.on('scenario_update', (data) => {
@@ -118,6 +127,7 @@ socket.on('scenario_update', (data) => {
     scenarioDiv.innerHTML = `<div class="scenario-box"><h2>${sc.title}</h2><p>${sc.description}</p><p>Час: ${sc.duration} | Місць: ${sc.places}</p><div id="turn-info" style="background:yellow;color:black;text-align:center;display:none;"></div></div>`;
     startBtn.style.display = 'none';
     currentPhase = "INTRO";
+    revealedCache = {}; // Очистка для нової гри
     updateInterfaceForPhase();
 });
 
@@ -151,80 +161,117 @@ socket.on('timer_tick', (sec) => {
     timerDisplay.style.color = (sec <= 10) ? 'red' : 'var(--accent-green)';
 });
 
-// Кнопка часу: показуємо завжди під час гри (не в лобі)
 window.addTime = () => socket.emit('add_time');
 socket.on('bonus_used_update', (n) => {
     addTimeBtn.innerText = `+30s (${2-n})`;
     updateInterfaceForPhase();
 });
 
-// Картка
+// МОЯ КАРТКА
 socket.on('your_character', (char) => {
-    myCardDiv.innerHTML = `
-        <div class="player-card" style="width: 100%; border-color: var(--accent-green);">
-            <ul class="my-traits">
-                <li data-trait="profession" onclick="reveal('profession', this)">🕵️‍♂️ ПРФ: ${char.profession}</li>
-                <li data-trait="gender" onclick="reveal('gender', this)">⚧ СТАТЬ: ${char.gender}</li>
-                <li data-trait="age" onclick="reveal('age', this)">🎂 ВІК: ${char.age}</li>
-                <li data-trait="health" onclick="reveal('health', this)">❤️ ЗДР: ${char.health}</li>
-                <li data-trait="hobby" onclick="reveal('hobby', this)">🎨 ХОБІ: ${char.hobby}</li>
-                <li data-trait="inventory" onclick="reveal('inventory', this)">🎒 ІНВ: ${char.inventory}</li>
-                <li data-trait="trait" onclick="reveal('trait', this)">💡 ФАКТ: ${char.trait}</li>
-            </ul>
-        </div>
-    `;
+    // Зберігаємо мої дані в кеш теж, щоб не зникали при ререндері (хоча моя картка рендериться окремо)
+    if (!revealedCache[myId]) revealedCache[myId] = {};
+    Object.assign(revealedCache[myId], char); // Зберігаємо все про себе
+
+    // Генеруємо HTML
+    let html = `<div class="player-card" style="width: 100%; border-color: var(--accent-green);"><ul class="my-traits">`;
+    
+    const traits = [
+        {k:'profession', l:'🕵️‍♂️ ПРФ'}, {k:'gender', l:'⚧ СТАТЬ'}, {k:'age', l:'🎂 ВІК'},
+        {k:'health', l:'❤️ ЗДР'}, {k:'hobby', l:'🎨 ХОБІ'}, {k:'inventory', l:'🎒 ІНВ'},
+        {k:'trait', l:'💡 ФАКТ'}
+    ];
+
+    traits.forEach(t => {
+        // Перевіряємо, чи ми вже "відкрили" це для сервера (чи воно в кеші як 'revealed'?)
+        // Або просто перевіряємо клас
+        // Але тут ми просто рендеримо заново. 
+        // Додаємо data-trait для пошуку.
+        html += `<li data-trait="${t.k}" onclick="reveal('${t.k}', this)">${t.l}: ${char[t.k]}</li>`;
+    });
+    
+    html += `<hr><li data-trait="action" onclick="reveal('action', this)" style="color:#d633ff; border-color:#d633ff;">⚡ ДІЯ: ${char.action}</li></ul></div>`;
+    
+    myCardDiv.innerHTML = html;
+    
+    // Відновлюємо стан "відкритості" (зелений колір) з кешу або перевірки
+    // Тут ми просто чекаємо події player_revealed_trait, яка прийде при реконнекті
     updateInterfaceForPhase();
 });
 
 window.reveal = (trait, el) => {
     if(el.classList.contains('revealed')) return;
     if(currentPhase !== "REVEAL") return alert("Не час!");
-    if(activePlayerId && activePlayerId !== myId) return alert("Не твій хід!");
-    if(confirm("Відкрити?")) socket.emit('reveal_trait', trait);
+    if(activePlayerId && activePlayerId !== myId) return alert("Зачекай своєї черги!");
+    
+    if (trait === 'action') {
+        const targetName = prompt("Введи точне ім'я цілі (для лікування/вбивства) або залиш пустим:");
+        socket.emit('use_ability', { trait: trait, targetName: targetName ? targetName.trim() : null });
+    } else {
+        if(confirm("Відкрити?")) socket.emit('use_ability', { trait: trait, targetName: null });
+    }
 };
 
+// === ГОЛОВНИЙ ФІКС: ЗБЕРІГАННЯ ТА ВІДОБРАЖЕННЯ ВІДКРИТИХ ДАНИХ ===
 socket.on('player_revealed_trait', (data) => {
-    const map = { 'profession': 'prof', 'gender': 'gen', 'age': 'age', 'health': 'health', 'inventory': 'inv', 'hobby': 'hobby', 'trait': 'trait' };
+    // 1. Зберігаємо в пам'ять клієнта
+    if (!revealedCache[data.playerId]) revealedCache[data.playerId] = {};
+    revealedCache[data.playerId][data.trait] = data.value;
+
+    // 2. Оновлюємо візуал
+    const map = { 'profession': 'prof', 'gender': 'gen', 'age': 'age', 'health': 'health', 'inventory': 'inv', 'hobby': 'hobby', 'trait': 'trait', 'action': 'act' };
     const el = document.getElementById(`${map[data.trait]}-${data.playerId}`);
+    
     if(el) el.innerHTML = `${data.trait.toUpperCase()}: <span style="color:lime">${data.value}</span>`;
     
+    // Якщо це я - підсвічуємо в "Моїй картці"
     if(data.playerId === myId) {
         const myLi = document.querySelector(`.my-traits li[data-trait="${data.trait}"]`);
-        if(myLi) { myLi.classList.add('revealed'); myLi.style.color = "lime"; myLi.style.borderColor = "lime"; }
+        if(myLi) {
+            myLi.classList.add('revealed');
+            myLi.style.color = "lime";
+            myLi.style.borderColor = "lime";
+        }
     }
 });
 
 function renderTable() {
     const tableDiv = document.getElementById('players-table');
-    tableDiv.innerHTML = ""; // Очищаємо
+    tableDiv.innerHTML = "";
 
     for (const [id, p] of Object.entries(allPlayersData)) {
         let card = document.createElement('div');
         card.id = `card-${id}`;
         card.className = "player-card";
         
-        // Статус (корона, онлайн)
         const crown = p.isAdmin ? "👑" : "";
-        const status = p.online ? "🟢" : "🔴 (OFF)";
+        const status = p.online ? "🟢" : "🔴";
         
         if (p.isKicked) {
             card.innerHTML = `<div style="text-align:center; color:red; padding:20px;"><h1>☠</h1><h3>${p.name}</h3><p>ELIMINATED</p></div>`;
             card.style.opacity = 0.5;
             card.style.border = "1px solid red";
         } else {
+            // === ТУТ ГОЛОВНА МАГІЯ: БЕРЕМО ДАНІ З КЕШУ ===
+            const cache = revealedCache[id] || {};
+            
+            // Допоміжна функція: якщо в кеші є - показуємо, якщо ні - шум
+            const val = (key) => cache[key] ? `<span style="color:lime">${cache[key]}</span>` : '░░░';
+
             let htmlContent = `
             <div style="display:flex; justify-content:space-between; border-bottom:1px solid #333; padding-bottom:5px; margin-bottom:5px;">
                 <strong>${crown} ${p.name} <span style="font-size:10px">${status}</span></strong>
                 <span class="vote-number" id="votenumm-${id}" style="display:none;">0</span>
             </div>
             <div id="stats-${id}">
-             <p id="prof-${id}">PRF: ░░░</p>
-             <p id="gen-${id}">GEN: ░░░</p>
-             <p id="age-${id}">AGE: ░░░</p>
-             <p id="health-${id}">HLT: ░░░</p>
-             <p id="inv-${id}">INV: ░░░</p>
-             <p id="hobby-${id}">HOB: ░░░</p>
-             <p id="trait-${id}">TRT: ░░░</p>
+             <p id="prof-${id}">PRF: ${val('profession')}</p>
+             <p id="gen-${id}">GEN: ${val('gender')}</p>
+             <p id="age-${id}">AGE: ${val('age')}</p>
+             <p id="health-${id}">HLT: ${val('health')}</p>
+             <p id="inv-${id}">INV: ${val('inventory')}</p>
+             <p id="hobby-${id}">HOB: ${val('hobby')}</p>
+             <p id="trait-${id}">TRT: ${val('trait')}</p>
+             <p id="act-${id}" style="color:#d633ff; font-weight:bold;">ACT: ${val('action')}</p>
             </div>
             <div class="vote-counter"><div class="vote-bar-fill" id="votebar-${id}"></div></div>`;
             
@@ -232,7 +279,6 @@ function renderTable() {
             else htmlContent += `<div style="text-align:center;font-size:10px;margin-top:5px;">ЦЕ ТИ</div>`;
             
             card.innerHTML = htmlContent;
-            
             if(id === activePlayerId) card.style.border = "2px solid yellow";
         }
         tableDiv.appendChild(card);
@@ -249,12 +295,23 @@ function updateInterfaceForPhase() {
         } else btn.style.display = "none";
     });
 
-    // Кнопка часу: показуємо якщо гра почалась і є бонуси
     addTimeBtn.style.display = 'none';
     if (currentPhase !== "LOBBY") {
         const myData = allPlayersData[myId];
         if (myData && myData.bonusTimeUsed < 2) {
             addTimeBtn.style.display = 'block';
+        }
+    }
+    
+    // Додатково: оновлюємо стиль моїх карток на основі кешу
+    if (revealedCache[myId]) {
+        for (const [trait, val] of Object.entries(revealedCache[myId])) {
+            const myLi = document.querySelector(`.my-traits li[data-trait="${trait}"]`);
+            if(myLi) {
+                myLi.classList.add('revealed');
+                myLi.style.color = "lime";
+                myLi.style.borderColor = "lime";
+            }
         }
     }
 }
@@ -278,7 +335,6 @@ socket.on('game_over', (story) => {
     gameScreen.innerHTML = `<div style="padding:20px;"><h1>КІНЕЦЬ</h1><p style="border:1px solid white;padding:10px;">${story}</p><button onclick="location.reload()">НОВА ГРА</button></div>`;
 });
 
-// Чат
 sendChatBtn.onclick = () => {
     const txt = chatInput.value.trim();
     if(txt) { socket.emit('send_message', txt); chatInput.value = ""; }
