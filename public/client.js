@@ -1,9 +1,11 @@
 const socket = io();
 
-// ЕЛЕМЕНТИ
+// === ЕЛЕМЕНТИ ІНТЕРФЕЙСУ ===
 const menuScreen = document.getElementById('menu-screen');
 const loginScreen = document.getElementById('login-screen');
 const gameScreen = document.getElementById('game-screen');
+
+// Меню та вхід
 const createRoomBtn = document.getElementById('createRoomBtn');
 const joinRoomMenuBtn = document.getElementById('joinRoomMenuBtn');
 const backToMenuBtn = document.getElementById('backToMenuBtn');
@@ -12,6 +14,8 @@ const loginTitle = document.getElementById('login-title');
 const usernameInput = document.getElementById('username');
 const roomCodeInput = document.getElementById('room-code-input');
 const actionBtn = document.getElementById('actionBtn');
+
+// Шапка гри
 const roomInfoPanel = document.getElementById('room-info-panel');
 const roomCodeDisplay = document.getElementById('room-code-display');
 const leaveRoomBtn = document.getElementById('leaveRoomBtn');
@@ -19,20 +23,30 @@ const statusPanel = document.getElementById('game-status-panel');
 const phaseDisplay = document.getElementById('phase-display');
 const timerDisplay = document.getElementById('timer-display');
 const addTimeBtn = document.getElementById('add-time-btn');
+
+// Основна зона гри
+const playersList = document.getElementById('players-list');
 const startBtn = document.getElementById('startBtn');
 const scenarioDiv = document.getElementById('scenario-display');
 const myCardDiv = document.getElementById('my-card-display');
-const chatHeader = document.getElementById('chat-header');
+const turnInfo = document.getElementById('turn-info');
+
+// Чат
 const chatInput = document.getElementById('chat-input');
 const sendChatBtn = document.getElementById('send-chat-btn');
 const chatMessages = document.getElementById('chat-messages');
+const chatHeader = document.getElementById('chat-header');
 
+// === ЗМІННІ СТАНУ ===
 let myId = null;
 let currentMode = null; 
 let allPlayersData = {};
 let currentPhase = "LOBBY";
 let activePlayerId = null;
-let revealedCache = {}; // Пам'ять відкритих карт
+
+// ВАЖЛИВО: Розділяємо дані
+let revealedCache = {}; // Те, що знають ВСІ (для столу)
+let mySecretData = {};  // Те, що знаю тільки Я (для моєї картки)
 
 socket.on('connect', () => { 
     myId = socket.id; 
@@ -43,7 +57,10 @@ socket.on('connect', () => {
     }
 });
 
-// МЕНЮ
+// ==========================================
+// 1. МЕНЮ ТА ВХІД
+// ==========================================
+
 createRoomBtn.onclick = () => { currentMode = 'create'; menuScreen.style.display = 'none'; loginScreen.style.display = 'block'; roomInputContainer.style.display = 'none'; loginTitle.textContent = "СТВОРЕННЯ ГРИ"; actionBtn.textContent = "СТВОРИТИ"; };
 joinRoomMenuBtn.onclick = () => { currentMode = 'join'; menuScreen.style.display = 'none'; loginScreen.style.display = 'block'; roomInputContainer.style.display = 'block'; loginTitle.textContent = "ПРИЄДНАННЯ"; actionBtn.textContent = "УВІЙТИ"; };
 backToMenuBtn.onclick = () => { loginScreen.style.display = 'none'; menuScreen.style.display = 'block'; };
@@ -61,7 +78,6 @@ actionBtn.onclick = () => {
     }
 };
 
-// ВХІД
 socket.on('room_joined', (data) => {
     localStorage.setItem('bunker_room', data.roomId);
     loginScreen.style.display = 'none';
@@ -102,7 +118,10 @@ leaveRoomBtn.onclick = () => {
     }
 };
 
-// ГРА
+// ==========================================
+// 2. ІГРОВИЙ ПРОЦЕС
+// ==========================================
+
 socket.on('update_player_list', (playersObj) => {
     allPlayersData = playersObj;
     renderTable();
@@ -112,7 +131,8 @@ socket.on('update_player_list', (playersObj) => {
 startBtn.onclick = () => { 
     startBtn.disabled = true; 
     startBtn.textContent = "ЗАВАНТАЖЕННЯ..."; 
-    revealedCache = {}; // Чистимо кеш для нової гри
+    revealedCache = {}; 
+    mySecretData = {};
     socket.emit('start_game_request'); 
 };
 
@@ -165,41 +185,53 @@ socket.on('bonus_used_update', (n) => {
     updateInterfaceForPhase();
 });
 
-// МОЯ КАРТКА (Без actions)
-socket.on('your_character', (char) => {
-    if (!revealedCache[myId]) revealedCache[myId] = {};
-    Object.assign(revealedCache[myId], char);
+// ==========================================
+// 3. КАРТКИ (ВИПРАВЛЕНО)
+// ==========================================
 
+socket.on('your_character', (char) => {
+    // Зберігаємо секретні дані окремо
+    mySecretData = char;
+
+    // Малюємо картку на основі секретних даних
     let html = `<div class="player-card" style="width: 100%; border-color: var(--accent-green);"><ul class="my-traits">`;
     const traits = [
         {k:'profession', l:'🕵️‍♂️ ПРФ'}, {k:'gender', l:'⚧ СТАТЬ'}, {k:'age', l:'🎂 ВІК'},
         {k:'health', l:'❤️ ЗДР'}, {k:'hobby', l:'🎨 ХОБІ'}, {k:'inventory', l:'🎒 ІНВ'},
         {k:'trait', l:'💡 ФАКТ'}
     ];
+    
     traits.forEach(t => {
         html += `<li data-trait="${t.k}" onclick="reveal('${t.k}', this)">${t.l}: ${char[t.k]}</li>`;
     });
+    
     html += `</ul></div>`;
     myCardDiv.innerHTML = html;
+    
     updateInterfaceForPhase();
 });
 
 window.reveal = (trait, el) => {
+    // Перевіряємо по класу, чи вже відкрито
     if(el.classList.contains('revealed')) return;
-    if(currentPhase !== "REVEAL") return alert("Не час!");
-    if(activePlayerId && activePlayerId !== myId) return alert("Не твій хід!");
+    
+    if(currentPhase !== "REVEAL") return alert("Зараз не час відкривати карти!");
+    if(activePlayerId && activePlayerId !== myId) return alert("Зачекай своєї черги!");
     
     if(confirm("Відкрити?")) socket.emit('reveal_trait', trait);
 };
 
 socket.on('player_revealed_trait', (data) => {
+    // 1. Оновлюємо публічний кеш
     if (!revealedCache[data.playerId]) revealedCache[data.playerId] = {};
     revealedCache[data.playerId][data.trait] = data.value;
 
+    // 2. Оновлюємо картку на столі (для всіх)
     const map = { 'profession': 'prof', 'gender': 'gen', 'age': 'age', 'health': 'health', 'inventory': 'inv', 'hobby': 'hobby', 'trait': 'trait' };
     const el = document.getElementById(`${map[data.trait]}-${data.playerId}`);
     if(el) el.innerHTML = `${data.trait.toUpperCase()}: <span style="color:lime">${data.value}</span>`;
     
+    // 3. Якщо це Я - оновлюємо мою інтерактивну картку (фарбуємо в зелений)
     if(data.playerId === myId) {
         const myLi = document.querySelector(`.my-traits li[data-trait="${data.trait}"]`);
         if(myLi) {
@@ -209,6 +241,10 @@ socket.on('player_revealed_trait', (data) => {
         }
     }
 });
+
+// ==========================================
+// 4. ТАБЛИЦЯ ТА ІНТЕРФЕЙС
+// ==========================================
 
 function renderTable() {
     const tableDiv = document.getElementById('players-table');
@@ -227,6 +263,7 @@ function renderTable() {
             card.style.opacity = 0.5;
             card.style.border = "1px solid red";
         } else {
+            // Беремо дані тільки з публічного кешу
             const cache = revealedCache[id] || {};
             const val = (key) => cache[key] ? `<span style="color:lime">${cache[key]}</span>` : '░░░';
 
@@ -259,6 +296,8 @@ function renderTable() {
 
 function updateInterfaceForPhase() {
     const isMyTurn = (myId === activePlayerId);
+    
+    // Кнопки голосування
     document.querySelectorAll('.vote-btn-card').forEach(btn => {
         if(currentPhase === "VOTE") {
             btn.style.display = "block";
@@ -266,6 +305,7 @@ function updateInterfaceForPhase() {
         } else btn.style.display = "none";
     });
 
+    // Кнопка часу
     addTimeBtn.style.display = 'none';
     if (currentPhase !== "LOBBY") {
         const myData = allPlayersData[myId];
@@ -274,6 +314,7 @@ function updateInterfaceForPhase() {
         }
     }
     
+    // Оновлення стилю моєї картки при реконнекті
     if (revealedCache[myId]) {
         for (const [trait, val] of Object.entries(revealedCache[myId])) {
             const myLi = document.querySelector(`.my-traits li[data-trait="${trait}"]`);
@@ -305,6 +346,7 @@ socket.on('game_over', (story) => {
     gameScreen.innerHTML = `<div style="padding:20px;"><h1>КІНЕЦЬ</h1><p style="border:1px solid white;padding:10px;">${story}</p><button onclick="location.reload()">НОВА ГРА</button></div>`;
 });
 
+// Чат
 sendChatBtn.onclick = () => {
     const txt = chatInput.value.trim();
     if(txt) { socket.emit('send_message', txt); chatInput.value = ""; }
