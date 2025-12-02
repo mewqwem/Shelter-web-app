@@ -431,6 +431,27 @@ io.on('connection', (socket) => {
         if(roomId) io.to(roomId).emit('new_message', { user: rooms[roomId].players[socket.id].name, text });
     });
 
+    socket.on('leave_room', () => {
+        const roomId = socket.data.roomId;
+        if (roomId && rooms[roomId]) {
+            // Видаляємо гравця зі списку
+            delete rooms[roomId].players[socket.id];
+            
+            // Повідомляємо інших
+            io.to(roomId).emit('update_player_list', rooms[roomId].players);
+            io.to(roomId).emit('new_message', { user: "СИСТЕМА", text: "🚪 Гравець покинув бункер." });
+            
+            // Відключаємо сокет від каналу
+            socket.leave(roomId);
+            socket.data.roomId = null;
+            
+            // Якщо кімната пуста - видаляємо
+            if (Object.keys(rooms[roomId].players).length === 0) {
+                delete rooms[roomId];
+            }
+        }
+    });
+
     socket.on('disconnect', () => {
         const roomId = socket.data.roomId;
         if (roomId && rooms[roomId]) {

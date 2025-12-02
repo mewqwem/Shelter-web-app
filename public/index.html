@@ -15,14 +15,16 @@
         <header>
             <div class="logo">☢️ PROJECT: BUNKER</div>
             
-            <div id="room-info-panel" class="hidden" style="color: cyan; border: 1px solid cyan; padding: 5px 10px;">
-                КОД: <span id="room-code-display" style="font-weight:bold; color:white;">----</span>
+            <div id="room-info-panel" class="hidden" style="display: flex; align-items: center; gap: 10px; background: rgba(0, 255, 255, 0.1); border: 1px solid cyan; padding: 5px 10px;">
+                <span style="color:cyan">КОД:</span> 
+                <span id="room-code-display" style="font-weight:bold; color:white; font-size: 18px;">----</span>
+                <button id="leaveRoomBtn" style="background: transparent; border: 1px solid #555; color: red; cursor: pointer; padding: 2px 8px; margin-left: 10px; font-weight: bold;">❌</button>
             </div>
 
             <div id="game-status-panel" class="hidden" style="display: flex; gap: 20px; align-items: center;">
                 <div id="phase-display" style="color: cyan; font-weight: bold;">ОЧІКУВАННЯ</div>
                 <div id="timer-display" style="font-size: 24px; color: var(--accent-green); border: 1px solid var(--accent-green); padding: 5px 10px;">00:00</div>
-                <button id="add-time-btn" onclick="addTime()" style="padding: 5px 10px; font-size: 12px; width: auto;">+30s (2)</button>
+                <button id="add-time-btn" onclick="addTime()" style="display: none; padding: 5px 10px; font-size: 12px; width: auto;">+30s (2)</button>
             </div>
         </header>
 
@@ -37,13 +39,10 @@
         <div id="login-screen" style="display: none;">
             <div class="login-box">
                 <h2 id="login-title">ПІДКЛЮЧЕННЯ</h2>
-                
                 <div id="room-input-container" style="display:none;">
                     <input type="text" id="room-code-input" placeholder="Введіть КОД кімнати" autocomplete="off" style="text-transform: uppercase;">
                 </div>
-
                 <input type="text" id="username" placeholder="Твій позивний..." autocomplete="off">
-                
                 <div style="display: flex; gap: 10px;">
                     <button id="backToMenuBtn" style="background: #333; width: 30%;">🠔</button>
                     <button id="actionBtn">УВІЙТИ</button>
@@ -52,14 +51,12 @@
         </div>
 
         <div id="game-screen" style="display: none;">
-            
             <div id="top-panel">
                 <div class="panel-section">
                     <h3>👥 Гравці в бункері</h3>
                     <ul id="players-list"></ul>
                     <button id="startBtn" style="display: none;">ЗАПУСТИТИ СИМУЛЯЦІЮ</button>
                 </div>
-                
                 <div id="scenario-display"></div>
             </div>
 
@@ -68,7 +65,6 @@
                     <h3 class="section-title">📋 ДОСЬЄ ГРУПИ</h3>
                     <div id="players-table"></div>
                 </div>
-
                 <div class="side-column">
                     <h3 class="section-title">👤 МОЯ КАРТКА</h3>
                     <div id="my-card-display"></div>
