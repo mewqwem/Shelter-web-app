@@ -61,9 +61,9 @@ socket.on('connect', () => {
 // 1. МЕНЮ ТА ВХІД
 // ==========================================
 
-createRoomBtn.onclick = () => { currentMode = 'create'; menuScreen.style.display = 'none'; loginScreen.style.display = 'block'; roomInputContainer.style.display = 'none'; loginTitle.textContent = "СТВОРЕННЯ ГРИ"; actionBtn.textContent = "СТВОРИТИ"; };
-joinRoomMenuBtn.onclick = () => { currentMode = 'join'; menuScreen.style.display = 'none'; loginScreen.style.display = 'block'; roomInputContainer.style.display = 'block'; loginTitle.textContent = "ПРИЄДНАННЯ"; actionBtn.textContent = "УВІЙТИ"; };
-backToMenuBtn.onclick = () => { loginScreen.style.display = 'none'; menuScreen.style.display = 'block'; };
+createRoomBtn.onclick = () => { currentMode = 'create'; menuScreen.style.display = 'none'; loginScreen.style.display = 'flex'; roomInputContainer.style.display = 'none'; loginTitle.textContent = "СТВОРЕННЯ ГРИ"; actionBtn.textContent = "СТВОРИТИ"; };
+joinRoomMenuBtn.onclick = () => { currentMode = 'join'; menuScreen.style.display = 'none'; loginScreen.style.display = 'flex'; roomInputContainer.style.display = 'flex'; loginTitle.textContent = "ПРИЄДНАННЯ"; actionBtn.textContent = "УВІЙТИ"; };
+backToMenuBtn.onclick = () => { loginScreen.style.display = 'none'; menuScreen.style.display = 'flex'; };
 
 actionBtn.onclick = () => {
     const name = usernameInput.value.trim();
