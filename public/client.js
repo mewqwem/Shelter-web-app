@@ -1,6 +1,6 @@
 const socket = io();
 
-// === ЕЛЕМЕНТИ ===
+// ЕЛЕМЕНТИ
 const menuScreen = document.getElementById('menu-screen');
 const loginScreen = document.getElementById('login-screen');
 const gameScreen = document.getElementById('game-screen');
@@ -32,10 +32,7 @@ let currentMode = null;
 let allPlayersData = {};
 let currentPhase = "LOBBY";
 let activePlayerId = null;
-
-// === ПАМ'ЯТЬ ВІДКРИТИХ КАРТ (NEW) ===
-// Структура: { 'socketId': { 'profession': 'Лікар', 'age': '25' ... } }
-let revealedCache = {}; 
+let revealedCache = {}; // Пам'ять відкритих карт
 
 socket.on('connect', () => { 
     myId = socket.id; 
@@ -46,7 +43,7 @@ socket.on('connect', () => {
     }
 });
 
-// --- МЕНЮ ---
+// МЕНЮ
 createRoomBtn.onclick = () => { currentMode = 'create'; menuScreen.style.display = 'none'; loginScreen.style.display = 'block'; roomInputContainer.style.display = 'none'; loginTitle.textContent = "СТВОРЕННЯ ГРИ"; actionBtn.textContent = "СТВОРИТИ"; };
 joinRoomMenuBtn.onclick = () => { currentMode = 'join'; menuScreen.style.display = 'none'; loginScreen.style.display = 'block'; roomInputContainer.style.display = 'block'; loginTitle.textContent = "ПРИЄДНАННЯ"; actionBtn.textContent = "УВІЙТИ"; };
 backToMenuBtn.onclick = () => { loginScreen.style.display = 'none'; menuScreen.style.display = 'block'; };
@@ -64,7 +61,7 @@ actionBtn.onclick = () => {
     }
 };
 
-// --- ВХІД ---
+// ВХІД
 socket.on('room_joined', (data) => {
     localStorage.setItem('bunker_room', data.roomId);
     loginScreen.style.display = 'none';
@@ -73,6 +70,8 @@ socket.on('room_joined', (data) => {
     
     roomInfoPanel.classList.remove('hidden');
     roomCodeDisplay.textContent = data.roomId;
+    document.getElementById('leaveRoomBtn').style.display = 'block';
+    
     chatHeader.textContent = `💬 КАНАЛ КІМНАТИ [${data.roomId}]`;
     chatMessages.innerHTML = ''; 
 
@@ -103,7 +102,7 @@ leaveRoomBtn.onclick = () => {
     }
 };
 
-// --- ГРА ---
+// ГРА
 socket.on('update_player_list', (playersObj) => {
     allPlayersData = playersObj;
     renderTable();
@@ -113,8 +112,7 @@ socket.on('update_player_list', (playersObj) => {
 startBtn.onclick = () => { 
     startBtn.disabled = true; 
     startBtn.textContent = "ЗАВАНТАЖЕННЯ..."; 
-    // Очищаємо кеш при новій грі
-    revealedCache = {};
+    revealedCache = {}; // Чистимо кеш для нової гри
     socket.emit('start_game_request'); 
 };
 
@@ -127,7 +125,7 @@ socket.on('scenario_update', (data) => {
     scenarioDiv.innerHTML = `<div class="scenario-box"><h2>${sc.title}</h2><p>${sc.description}</p><p>Час: ${sc.duration} | Місць: ${sc.places}</p><div id="turn-info" style="background:yellow;color:black;text-align:center;display:none;"></div></div>`;
     startBtn.style.display = 'none';
     currentPhase = "INTRO";
-    revealedCache = {}; // Очистка для нової гри
+    revealedCache = {}; 
     updateInterfaceForPhase();
 });
 
@@ -167,64 +165,41 @@ socket.on('bonus_used_update', (n) => {
     updateInterfaceForPhase();
 });
 
-// МОЯ КАРТКА
+// МОЯ КАРТКА (Без actions)
 socket.on('your_character', (char) => {
-    // Зберігаємо мої дані в кеш теж, щоб не зникали при ререндері (хоча моя картка рендериться окремо)
     if (!revealedCache[myId]) revealedCache[myId] = {};
-    Object.assign(revealedCache[myId], char); // Зберігаємо все про себе
+    Object.assign(revealedCache[myId], char);
 
-    // Генеруємо HTML
     let html = `<div class="player-card" style="width: 100%; border-color: var(--accent-green);"><ul class="my-traits">`;
-    
     const traits = [
         {k:'profession', l:'🕵️‍♂️ ПРФ'}, {k:'gender', l:'⚧ СТАТЬ'}, {k:'age', l:'🎂 ВІК'},
         {k:'health', l:'❤️ ЗДР'}, {k:'hobby', l:'🎨 ХОБІ'}, {k:'inventory', l:'🎒 ІНВ'},
         {k:'trait', l:'💡 ФАКТ'}
     ];
-
     traits.forEach(t => {
-        // Перевіряємо, чи ми вже "відкрили" це для сервера (чи воно в кеші як 'revealed'?)
-        // Або просто перевіряємо клас
-        // Але тут ми просто рендеримо заново. 
-        // Додаємо data-trait для пошуку.
         html += `<li data-trait="${t.k}" onclick="reveal('${t.k}', this)">${t.l}: ${char[t.k]}</li>`;
     });
-    
-    html += `<hr><li data-trait="action" onclick="reveal('action', this)" style="color:#d633ff; border-color:#d633ff;">⚡ ДІЯ: ${char.action}</li></ul></div>`;
-    
+    html += `</ul></div>`;
     myCardDiv.innerHTML = html;
-    
-    // Відновлюємо стан "відкритості" (зелений колір) з кешу або перевірки
-    // Тут ми просто чекаємо події player_revealed_trait, яка прийде при реконнекті
     updateInterfaceForPhase();
 });
 
 window.reveal = (trait, el) => {
     if(el.classList.contains('revealed')) return;
     if(currentPhase !== "REVEAL") return alert("Не час!");
-    if(activePlayerId && activePlayerId !== myId) return alert("Зачекай своєї черги!");
+    if(activePlayerId && activePlayerId !== myId) return alert("Не твій хід!");
     
-    if (trait === 'action') {
-        const targetName = prompt("Введи точне ім'я цілі (для лікування/вбивства) або залиш пустим:");
-        socket.emit('use_ability', { trait: trait, targetName: targetName ? targetName.trim() : null });
-    } else {
-        if(confirm("Відкрити?")) socket.emit('use_ability', { trait: trait, targetName: null });
-    }
+    if(confirm("Відкрити?")) socket.emit('reveal_trait', trait);
 };
 
-// === ГОЛОВНИЙ ФІКС: ЗБЕРІГАННЯ ТА ВІДОБРАЖЕННЯ ВІДКРИТИХ ДАНИХ ===
 socket.on('player_revealed_trait', (data) => {
-    // 1. Зберігаємо в пам'ять клієнта
     if (!revealedCache[data.playerId]) revealedCache[data.playerId] = {};
     revealedCache[data.playerId][data.trait] = data.value;
 
-    // 2. Оновлюємо візуал
-    const map = { 'profession': 'prof', 'gender': 'gen', 'age': 'age', 'health': 'health', 'inventory': 'inv', 'hobby': 'hobby', 'trait': 'trait', 'action': 'act' };
+    const map = { 'profession': 'prof', 'gender': 'gen', 'age': 'age', 'health': 'health', 'inventory': 'inv', 'hobby': 'hobby', 'trait': 'trait' };
     const el = document.getElementById(`${map[data.trait]}-${data.playerId}`);
-    
     if(el) el.innerHTML = `${data.trait.toUpperCase()}: <span style="color:lime">${data.value}</span>`;
     
-    // Якщо це я - підсвічуємо в "Моїй картці"
     if(data.playerId === myId) {
         const myLi = document.querySelector(`.my-traits li[data-trait="${data.trait}"]`);
         if(myLi) {
@@ -252,10 +227,7 @@ function renderTable() {
             card.style.opacity = 0.5;
             card.style.border = "1px solid red";
         } else {
-            // === ТУТ ГОЛОВНА МАГІЯ: БЕРЕМО ДАНІ З КЕШУ ===
             const cache = revealedCache[id] || {};
-            
-            // Допоміжна функція: якщо в кеші є - показуємо, якщо ні - шум
             const val = (key) => cache[key] ? `<span style="color:lime">${cache[key]}</span>` : '░░░';
 
             let htmlContent = `
@@ -271,7 +243,6 @@ function renderTable() {
              <p id="inv-${id}">INV: ${val('inventory')}</p>
              <p id="hobby-${id}">HOB: ${val('hobby')}</p>
              <p id="trait-${id}">TRT: ${val('trait')}</p>
-             <p id="act-${id}" style="color:#d633ff; font-weight:bold;">ACT: ${val('action')}</p>
             </div>
             <div class="vote-counter"><div class="vote-bar-fill" id="votebar-${id}"></div></div>`;
             
@@ -303,7 +274,6 @@ function updateInterfaceForPhase() {
         }
     }
     
-    // Додатково: оновлюємо стиль моїх карток на основі кешу
     if (revealedCache[myId]) {
         for (const [trait, val] of Object.entries(revealedCache[myId])) {
             const myLi = document.querySelector(`.my-traits li[data-trait="${trait}"]`);
