@@ -119,21 +119,57 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // Скидання стану
         clearInterval(room.timerInterval);
         room.round = 1;
         room.votes = {};
         room.actionsThisRound = {};
+        
         for (let id in room.players) { 
             room.players[id].isKicked = false; 
             room.players[id].bonusTimeUsed = 0;
         }
 
         try {
-            const prompt = `Згенеруй гру "Бункер" (JSON) для ${playerCount} гравців. Умова: МІНІМУМ 2 місця, але менше ніж ${playerCount}. Поверни ТІЛЬКИ чистий JSON. Структура: { "scenario": { "title": "...", "description": "...", "places": 2, "duration": "..." }, "players": [ { "profession": "...", "health": "...", "gender": "...", "age": "...", "hobby": "...", "inventory": "...", "trait": "..." } ] }`;
+            // === ОНОВЛЕНИЙ "ЖОРСТКИЙ" ПРОМПТ ===
+            const prompt = `
+            Згенеруй гру "Бункер" (JSON) для ${playerCount} гравців.
+            
+            ІНСТРУКЦІЯ ПО БАЛАНСУ (КРИТИЧНО ВАЖЛИВО):
+            1. ПРОФЕСІЇ:
+               - 30% Корисні (Лікар, Інженер, Агроном).
+               - 30% Звичайні (Вчитель, Водій, Бухгалтер).
+               - 40% БЕЗГЛУЗДІ або ДИВНІ (Астролог, Блогер, Ворожка, Сомельє, Безробітний, Депутат, Стриптизер, Клоун).
+               - НЕ повторюй професії!
+            
+            2. ЗДОРОВ'Я та БІОЛОГІЯ:
+               - Зроби повний дисбаланс. Не роби всіх здоровими!
+               - Обов'язково додай 1-2 персонажів з ТЯЖКИМИ вадами (Сліпота, Шизофренія, Вік 90 років, Відсутність рук, Епілепсія, Алкоголізм).
+               - Вік має варіюватися від 18 до 99 років.
+            
+            3. ІНВЕНТАР:
+               - Змішай корисне (Пістолет, Аптечка) з повним сміттям (Дірява шкарпетка, Фотка колишнього, Гумова качка, Колода карт).
+            
+            4. ФАКТ:
+               - Додай брудні секрети або дивні звички (Хропе, Вкрав гроші, Канібал, Має багатого тата).
+
+            СЦЕНАРІЙ:
+            Придумай оригінальну катастрофу (не тільки ядерна війна). Місць у бункері має бути МІНІМУМ 2, але менше ніж ${playerCount}.
+
+            Поверни ТІЛЬКИ чистий JSON. Структура: 
+            { 
+                "scenario": { "title": "...", "description": "...", "places": 2, "duration": "..." }, 
+                "players": [ 
+                    { "profession": "...", "health": "...", "gender": "...", "age": "...", "hobby": "...", "inventory": "...", "trait": "..." } 
+                ] 
+            }`;
+            
             const result = await model.generateContent(prompt);
             let text = result.response.text();
-            const cleanJson = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
+            
+            // Чистимо JSON
+            const jsonStartIndex = text.indexOf('{');
+            const jsonEndIndex = text.lastIndexOf('}');
+            const cleanJson = text.substring(jsonStartIndex, jsonEndIndex + 1);
             const gameData = JSON.parse(cleanJson);
 
             room.scenario = gameData.scenario;
@@ -147,6 +183,8 @@ io.on('connection', (socket) => {
                 if (id) {
                     room.playerCharacters[id] = character;
                     io.to(id).emit('your_character', character);
+                    
+                    // Авто-відкриття біології
                     setTimeout(() => {
                         revealTrait(roomId, id, 'gender');
                         revealTrait(roomId, id, 'age');
@@ -157,8 +195,8 @@ io.on('connection', (socket) => {
             startPhase(roomId, "INTRO");
 
         } catch (error) {
-            console.error(error);
-            socket.emit('error_message', "Помилка AI.");
+            console.error("Помилка генерації:", error);
+            io.to(roomId).emit('new_message', { user: "SYSTEM", text: "⚠ AI перегрівся. Спробуйте ще раз." });
             socket.emit('reset_start_btn');
         }
     });
